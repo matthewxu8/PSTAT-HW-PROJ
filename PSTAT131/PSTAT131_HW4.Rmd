@@ -1,0 +1,375 @@
+---
+title: "Homework Assignment 4"
+author: "Matthew Xu"
+date: "11 December 2020"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+fontsize: 11pt
+geometry: margin=1in
+header-includes:
+- \usepackage{amsmath}
+---
+
+\vspace{0.25in}
+
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+#knit from directory
+setwd("/Users/MatthewXu/Desktop/PSTAT131")
+
+library(readr)
+
+knitr::opts_knit$set(root.dir="/Users/MatthewXu/Desktop/PSTAT131")
+```
+
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+library(tidyverse) 
+library(tree) 
+library(randomForest) 
+library(gbm) 
+library(ROCR) 
+library(e1071) 
+library(imager)
+```
+# 1. "PROBLEM NUMBER ONE"
+
+a. "PROBLEM NUMBER ONE, PART A"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+#where n is size of sample
+bootstrap_samp <- function(n) {
+  prob <- (1-(1/n))^n
+  return(prob)
+}
+
+```
+Bootstrap sampling is a sampling with replacement, therefore with each bootstrap sampling not the jth observation from the original sample, is (1-1/n), the probabilty that each observation is in sample size n, the jth observation, is not in the original sample is then (1-1/n)^n
+
+b. "PROBLEM NUMBER ONE, PART B"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+#boostrap sample where n = 1000
+bootstrap_samp(1000)
+
+```
+
+c. "PROBLEM NUMBER ONE, PART C"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+samp <- seq(1, 1000, by=1)
+resample <- sample(samp, replace = TRUE)
+resample_unique <- unique(resample)
+
+#number of unique element in the resample
+cat("Number of unique elements in resample",length(resample_unique), '\n')
+
+#find number of missing unique sampels in resample
+cat("Number of missing unique elements in resample",length(samp) - length(resample_unique), '\n')
+
+#probability of having missing unque values
+cat("Probability of missing unique elements in resample",(length(samp) - length(resample_unique))/length(samp), '\n')
+```
+The probabilty matches the theroretical probabilty calcuated in part b.
+
+d. "PROBLEM NUMBER ONE, PART D"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+#number of throws
+n = 126
+#sequnce of 64 0's and 62 1's 
+NBA_seq <- c(rep(0, 64), rep(1, 62))
+
+#means of 1000 bootstrap samples
+bootstrap_estimates <- sapply(1:1000, function(i) mean(NBA_seq[sample(n, replace=TRUE)]))
+hist(bootstrap_estimates, freq=FALSE, breaks=20, main="Bootstrap Estimates", xlim=c(0,1))
+
+#For a two sides 95% confidence interval
+#lower bound 
+cat("Lower Bound",quantile(bootstrap_estimates,.025), '\n')
+#upper bound
+cat("Upper Bound",quantile(bootstrap_estimates,0.975), '\n')
+ 
+```
+Regression to the mean refers to a statistical phenomeon where outlier data points that are either too large or too small are eventually followed by data points that lie very close to the mean, hence "regression to the mean". This is due to random errors that occur during measurement. In the case of Stephen Curry and sports, a hidden external factor may cause the data to skew that particular year, where his accuracy was lower. It could be he imporved over between two years, motivated by his lower preformances, fatigue, or some else in his life. The regression to the mean says that his accuracy will eventually converge to the mean.
+
+# 2. "PROBLEM NUMBER TWO"
+
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+load("faces_array.RData")
+```
+
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+face_mat <- sapply(1:1000, function(i) as.numeric(faces_array[, , i])) %>% t
+```
+
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+ plot_face <- function(image_vector) { 
+   plot(as.cimg(t(matrix(image_vector, ncol=100))), axes=FALSE, asp=1)
+}
+```
+
+a. "PROBLEM NUMBER TWO, PART A"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+face_mat_mean <- colMeans(face_mat)
+plot_face(face_mat_mean)
+
+```
+
+b. "PROBLEM NUMBER TWO, PART B"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+#using prcomp to calculate pve and cumulative pve
+face_pca <- prcomp(face_mat, scale = FALSE, center = TRUE)
+sdev <- face_pca$sdev
+pve <- sdev^2/sum(sdev^2)
+cumulative_pve <- cumsum(pve)
+
+## This will put the next two plots side by side 
+par(mfrow=c(1, 2))
+
+## Plot proportion of variance explained \
+plot(pve, type="l", lwd=3) 
+plot(cumulative_pve, type="l", lwd=3)
+
+#find how many PC's to explain at least 50% of the total variation in face images
+min(which(cumulative_pve >= 0.5))
+```
+By looking at the indexes in cumulative PVE, you need about 5 PC's to explain at least 50% of the total variation in face images.
+
+c. "PROBLEM NUMBER TWO, PART C"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+par(mfrow=c(4,4))
+
+#eigenface is the loading or rotations
+for (i in 1:16){
+  par(mar=c(1,1,1,1))
+  #first 16 principle componenet directions columns of rotations matrix
+  plot_face(face_pca$rotation[, i])
+}
+```
+
+d. "PROBLEM NUMBER TWO, PART D"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+par(mfrow=c(1,5))
+#5 largest values in PC1
+#ix is the index of the large/small vectors
+largest_PC1 <- sort(face_pca$x[,1], decreasing = TRUE, index.return = TRUE)
+for (i in 1:5){
+  plot_face(face_pca$rotation[,largest_PC1$ix[i]])
+}
+
+#5 largest values in PC1
+smallest_PC1 <- sort(face_pca$x[,1], decreasing = FALSE, index.return = TRUE)
+for (i in 1:5){
+   plot_face(face_pca$rotation[,smallest_PC1$ix[i]])
+}
+```
+The aspect of variabilty that appears to to be captured by the first compoenent is the outline of the face, as it can be seen whithin the contrasting black and white colors, with sometimes a bit of an outline of a nose, eyes or mouth.
+
+e. "PROBLEM NUMBER TWO, PART E"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+par(mfrow=c(1,5))
+#5 largest values in PC1
+largest_PC5 <- sort(face_pca$x[,5], decreasing = TRUE, index.return = TRUE)
+for (i in 1:5){
+   plot_face(face_pca$rotation[,largest_PC5$ix[i]])
+}
+
+#5 largest values in PC1
+smallest_PC5 <- sort(face_pca$x[,5], decreasing = FALSE, index.return = TRUE)
+for (i in 1:5){
+  plot_face(face_pca$rotation[,smallest_PC5$ix[i]])
+}
+```
+Of the two principle componenets, additonal features of the face are more as the number of principle componenets increase. Therefore, Prinipal component 5 is usually better.
+
+# 3. "PROBLEM NUMBER THREE"
+
+a. "PROBLEM NUMBER THREE, PART A"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+
+nonlinear_data <- read_csv('nonlinear.csv')
+
+#on piazza classify the data in reference to y by x1 and x2
+plot(nonlinear_data$X1, nonlinear_data$X2)
+text(nonlinear_data$X1, nonlinear_data$X2, labels=nonlinear_data$Y, col = c('red', 'blue'))
+```
+
+b. "PROBLEM NUMBER THREE, PART b"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+# grid of points over sample space
+gr <- expand.grid(X1=seq(-5, 5, by=0.1), # sample points in X1
+                  X2=seq(-5, 5, by=0.1)) # sample points in X2
+```
+
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+#fitting logitisc regression to data
+glm.fit <-glm(Y ~ X1 + X2, data=nonlinear_data, family = binomial)
+
+summary(glm.fit)
+
+prob.gr <- predict(glm.fit, gr, type = "response")
+
+pred.gr=ifelse(prob.gr<=0.5, 0, 1)
+
+ggplot(gr, aes(x = gr$X1, y = gr$X2)) +
+ geom_raster(aes(fill = pred.gr), alpha = 0.5) +
+  geom_point(aes(color = pred.gr))
+
+```
+
+c. "PROBLEM NUMBER THREE, PART C"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+#2nd degree polynomial fit with interaction terms
+poly2_fit<-glm(Y ~ poly(X1, degree = 2) + poly(X2, degree = 2) + poly(X1, degree = 2)*poly(X2, degree = 2),data = nonlinear_data, family = binomial)
+
+summary(poly2_fit)
+
+prob.gr2 <- predict(poly2_fit, gr, type = "response")
+
+pred.gr2=ifelse(prob.gr2<=0.5, 0, 1)
+
+ggplot(gr, aes(x = gr$X1, y = gr$X2)) +
+ geom_raster(aes(fill = pred.gr2), alpha = 0.5) +
+  geom_point(aes(color = pred.gr2))
+```
+
+d. "PROBLEM NUMBER THREE, PART D"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+#5th degree polynomial fit with no interaction terms
+poly5_fit<-glm(Y ~ poly(X1, degree = 5) + poly(X2, degree = 5),data = nonlinear_data, family = binomial)
+
+summary(poly5_fit)
+
+prob.gr_3 <- predict(poly5_fit, gr, type = "response")
+
+pred.gr_3=ifelse(prob.gr_3<=0.5, 0, 1)
+
+ggplot(gr, aes(x = gr$X1, y = gr$X2)) +
+ geom_raster(aes(fill = pred.gr_3), alpha = 0.5) +
+  geom_point(aes(color = pred.gr_3))
+
+```
+Generally, logstic models even on polynomial ones have high bias and low variance. By increasing the polynomial degree, the variance increases more while bias decreases. Therefore, in terms of the tradeoff between variance and bias, the second degree interacted polynomial is best. 
+
+e. "PROBLEM NUMBER THREE, PART E"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+Bootsample_1 <- lapply(1:3,function(i)nonlinear_data[sample(1:nrow(nonlinear_data),replace = TRUE),])
+#linear model
+# 3 boostrap models each
+for (i in 1:3) {
+ glm_1 = glm(Y~X1+X2,data=Bootsample_1[[i]])
+ probability_pred_1 = predict(glm_1,gr,type='response')
+ pred_1 = ifelse(probability_pred_1<=0.5, 0, 1)
+ 
+ print(ggplot(gr, aes(x = gr$X1, y = gr$X2)) +
+  geom_raster(aes(fill = pred_1), alpha = 0.5) +
+    geom_point(aes(color = pred_1)))
+ 
+}
+
+# the 5th order polynomial term
+Bootsample_2 <- lapply(1:3,function(i)nonlinear_data[sample(1:nrow(nonlinear_data),replace = TRUE),])
+for (i in 1:3) {
+ glm_5 = glm(Y~poly(X1,deg=5)+poly(X2,deg=5),data=Bootsample_2[[i]])
+ probability_pred_5 = predict(glm_5,gr,type='response')
+ pred_5 = ifelse(probability_pred_5<=0.5, 0, 1)
+ 
+ print(ggplot(gr, aes(x = gr$X1, y = gr$X2)) +
+  geom_raster(aes(fill = pred_5), alpha = 0.5) +
+    geom_point(aes(color = pred_5)))
+}
+```
+The trends continue to appear as shown above, where linear like regressions appear in a line, having large bias and small variance. The higher the polynomial, the opposite occurs, where variance increases and bias decreases. Data poitns are distributed less unifmorly and does not improve performance.
+# 4. "PROBLEM NUMBER FOUR"
+
+a. "PROBLEM NUMBER FOUR, PART A"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+library(ISLR)
+attach(Caravan)
+
+set.seed(1)
+train <- 1:1000
+
+Caravan.train <- Caravan[train, ]
+Caravan.test <- Caravan[-train, ]
+```
+
+b. "PROBLEM NUMBER FOUR, PART B"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+set.seed(1)
+boost.caravan <- gbm(ifelse(Purchase=="Yes",1,0)~., data = Caravan.train, distribution="bernoulli", n.trees = 1000, shrinkage = 0.01)
+
+summary(boost.caravan)
+```
+The predictors PPERSAUT and MKOOPKLA appear to be the most important variables due to having the largest rel.inf.
+
+c. "PROBLEM NUMBER FOUR, PART C"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+rf.caravan = randomForest(Purchase ~ ., data=Caravan.train, importance=TRUE)
+print(rf.caravan)
+importance(rf.caravan)
+```
+The Out-Of-Bags estimate error is 6.2%. The number of variables subsampled at each split of the tree is 9. THe number of trees used to fit the data is 500. The most important variables are MOSTYPE and MAANTHUI, based on model accuracy and gini value, which is not similar in order to the most important variables in boosting.
+
+d. "PROBLEM NUMBER FOUR, PART D"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+#boosting confusion matrix
+probs.test_boost <- predict(boost.caravan, Caravan.test, ntrees = 1000, type = "response")
+pred.test_boost <- as.factor(ifelse(probs.test_boost > 0.2, 'Yes', 'No'))
+table(pred = pred.test_boost, truth = Caravan.test$Purchase)
+
+#random forest confusion matrix
+probs.test_rf <- predict(rf.caravan, Caravan.test, type = "prob")
+pred.test_rf <- ifelse(probs.test_rf[, 'Yes'] > 0.2, 'Yes', 'No')
+table(pred = pred.test_rf, truth = Caravan.test$Purchase)
+```
+The poroportion of people that predicted to say yes that actually said yes to purchasing is about 15%.
+
+# 5. "PROBLEM NUMBER FIVE"
+
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+drug_use <- read_csv('drug.csv',
+col_names = c('ID','Age','Gender','Education','Country','Ethnicity',
+                                 'Nscore','Escore','Oscore','Ascore','Cscore','Impulsive',
+                                'SS','Alcohol','Amphet','Amyl','Benzos','Caff','Cannabis',
+                                'Choc','Coke','Crack','Ecstasy','Heroin','Ketamine','Legalh','LSD',
+                                'Meth', 'Mushrooms', 'Nicotine', 'Semer','VSA'))
+```
+
+a. "PROBLEM NUMBER FIVE, PART A"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+drug_use <- drug_use %>%
+  mutate(recent_cannabis_use= factor(ifelse(drug_use$Cannabis >= "CL3", "Yes", "No"),  labels = c("No", "Yes")))
+
+drug_use_subset <- drug_use %>% select(Age:SS, recent_cannabis_use)
+
+#split into train.test sets of train set size = 1500
+set.seed(1, sample.kind = "Rounding")
+train.indices = sample(1:nrow(drug_use_subset), 1500)
+drug_use_train=drug_use_subset[train.indices,]
+drug_use_test=drug_use_subset[-train.indices,]
+
+#fitting SVM to training data
+#kernel = radial, cost = 1
+svmfit=svm(drug_use_train$recent_cannabis_use~., data=drug_use_train, kernel="radial", cost=1)
+ypred=predict(svmfit,drug_use_test)
+table(predict=ypred, truth=drug_use_test$recent_cannabis_use)
+```
+
+b. "PROBLEM NUMBER FIVE, PART B"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+#tuning SVM model
+set.seed(1)
+tune.out=tune(svm,recent_cannabis_use~., data=drug_use_train, kernel="radial",
+ranges=list(cost=c(0.001, 0.01, 0.1, 1,10,100)))
+
+summary(tune.out)
+
+#finding best model using attribute $best.model
+bestmod=tune.out$best.model
+summary(bestmod)
+
+#confusion matrix vs text set
+ypred_tuned=predict(bestmod,drug_use_test)
+table(predict=ypred_tuned, truth=drug_use_test$recent_cannabis_use)
+
+```
+
+The optimal cost is when cost = 0.1. For its corresponding cost of 0.1, it has the least error of all the costs ranges at 0.179333333.

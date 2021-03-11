@@ -1,0 +1,278 @@
+---
+title: "Homework Assignment 3"
+author: "Matthew Xu"
+date: "25 November 2020"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+fontsize: 11pt
+geometry: margin=1in
+header-includes:
+- \usepackage{amsmath}
+---
+
+\vspace{0.25in}
+
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+#knit from directory
+setwd("/Users/MatthewXu/Desktop/PSTAT131")
+
+library(readr)
+
+knitr::opts_knit$set(root.dir="/Users/MatthewXu/Desktop/PSTAT131")
+```
+
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+library(tidyverse) 
+library(ROCR) 
+library(tree) 
+library(maptree) 
+library(class) 
+library(lattice) 
+library(ggridges) 
+library(superheat)
+```
+
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+drug_use <- read_csv('drug.csv',
+col_names = c('ID','Age','Gender','Education','Country','Ethnicity',
+                                 'Nscore','Escore','Oscore','Ascore','Cscore','Impulsive',
+                                'SS','Alcohol','Amphet','Amyl','Benzos','Caff','Cannabis',
+              'Choc','Coke','Crack','Ecstasy','Heroin','Ketamine',
+              'Legalh','LSD','Meth','Mushrooms','Nicotine','Semer','VSA'))
+```
+
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+drug_use <- drug_use %>% mutate_at(as.ordered, .vars=vars(Alcohol:VSA)) 
+drug_use <- drug_use %>%
+  mutate(Gender = factor(Gender, labels=c("Male", "Female"))) %>% 
+  mutate(Ethnicity = factor(Ethnicity, labels=c("Black", "Asian", "White",
+"Mixed:White/Black", "Other", "Mixed:White/Asian", "Mixed:Black/Asian"))) %>%
+  mutate(Country = factor(Country, labels=c("Australia", "Canada", "New Zealand", "Other", "Ireland", "UK", "USA")))
+```
+
+# 1. "PROBLEM NUMBER ONE"
+
+a. "PROBLEM NUMBER ONE, PART A"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+#mutate to factor yes or no if >= CL3
+drug_use <- drug_use %>%
+  mutate(recent_cannabis_use= factor(ifelse(drug_use$Cannabis >= "CL3", "Yes", "No"),  labels = c("No", "Yes")))
+
+#test to see if factor
+class(drug_use$recent_cannabis_use)
+```
+
+b. "PROBLEM NUMBER ONE, PART B"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+drug_use_subset <- drug_use %>% select(Age:SS, recent_cannabis_use)
+
+#split into train.test sets of train set size = 1500
+set.seed(1, sample.kind = "Rounding")
+train.indices = sample(1:nrow(drug_use_subset), 1500)
+drug_use_train=drug_use_subset[train.indices,]
+drug_use_test=drug_use_subset[-train.indices,]
+
+#dimensions of train should be 1500, test 385 (1835 - 1500)
+dim(drug_use_train)
+dim(drug_use_test)
+
+```
+
+c. "PROBLEM NUMBER ONE, PART C"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+#fitting logitisc regression to train data
+glm.fit <-glm(drug_use_train$recent_cannabis_use~., data=drug_use_train, family= binomial)
+summary(glm.fit)
+```
+
+# 2. "PROBLEM NUMBER TWO"
+
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+#tree control
+tree_parameters = tree.control(nobs=nrow(drug_use_train), minsize=10, mindev=1e-3)
+```
+
+a. "PROBLEM NUMBER TWO, PART A"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+
+nfold = 10
+folds = seq.int(nrow(drug_use_train)) %>% ## sequential obs ids
+cut(breaks = nfold, labels=FALSE) %>% ## sequential fold ids
+sample ## random fold ids
+
+drugtree <- tree(drug_use_train$recent_cannabis_use~., drug_use_train, control = tree_parameters)
+
+set.seed(1, sample.kind = "Rounding")
+# K-Fold cross validation
+#rand is number of cases, the fold partioning
+cv = cv.tree(drugtree, rand = folds,  K=10, FUN=prune.misclass)
+
+#find best tree size
+#there are identical deviations for different sizes 
+#min of cv$size from the minimum positions of the minimum of cv$dev
+cv$size
+cv$dev
+
+best_size = min(cv$size[which(cv$dev == min(cv$dev))])
+best_size
+```
+Best size of the pruned tree is of 8 internal nodes.
+
+b. "PROBLEM NUMBER TWO, PART B"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+#prune tree to best size
+drugtree.pruned = prune.tree(drugtree, best=best_size)
+
+# Plot the tree
+draw.tree(drugtree.pruned, nodeinfo=TRUE) 
+title("Classification Tree Built on Training Set")
+```
+The first variable split in this decision tree is Country.
+
+c. "PROBLEM NUMBER TWO, PART C"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+# Predict on test set
+tree.pred = predict(drugtree.pruned, drug_use_test, type="class") 
+
+#confusion matrix for truths/falses
+test_labels = drug_use_test$recent_cannabis_use
+test.table = table(tree.pred, test_labels)
+test.table
+
+#TPR = TP/(TP+FN)
+#FPR = FP/(FP+TN)
+TPR = test.table[2,2]/(test.table[2,2] + test.table[1,2])
+TPR
+FPR = test.table[2,1]/(test.table[2,1] + test.table[1,1])
+FPR
+```
+
+# 3. "PROBLEM NUMBER THREE"
+
+a. "PROBLEM NUMBER THREE, PART A"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+#prob training for logisitic regression 
+#fit model to test data
+prob.training1 = predict(glm.fit, drug_use_test, type="response")
+#prob training for decision tree 
+prob.training2 = predict(drugtree.pruned, drug_use_test, type = "vector")
+
+# First arument is the prob.training, second is true labels
+LOGpred = prediction(prob.training1, drug_use_test$recent_cannabis_use)
+DTpred = prediction(prob.training2[,2], drug_use_test$recent_cannabis_use)
+
+# We want TPR on the y axis and FPR on the x axis
+perf1 = performance(LOGpred, measure="tpr", x.measure="fpr")
+perf2 = performance(DTpred, measure="tpr", x.measure="fpr")
+
+#plot both ROC curves on same plot
+plot(perf1, col=2, lwd=3, main="ROC curve") 
+par(new = TRUE)
+plot(perf2, col=3, lwd=3, main="ROC curve")
+abline(0,1)
+
+```
+b. "PROBLEM NUMBER THREE, PART B"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+#Calculate AUC log
+auc1 = performance(LOGpred, "auc")@y.values 
+auc1
+
+#Calculate AUC Descision Tree
+auc2 = performance(DTpred, "auc")@y.values 
+auc2
+```
+The logistic Regression model has the better AUC value.
+
+# 4. "PROBLEM NUMBER FOUR"
+
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+leukemia_data <- read_csv("leukemia_data.csv")
+```
+
+a. "PROBLEM NUMBER FOUR, PART A"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+#change variable Type to factor
+leukemia_data <- leukemia_data %>%
+  mutate_at(vars('Type'), as.factor)
+
+#check to see if factor
+class(leukemia_data$Type)
+
+#frequency table for each leukemia subtype
+table(leukemia_data$Type)
+```
+The BCR-ABL leukemia subtype occurs the least.
+
+b. "PROBLEM NUMBER FOUR, PART B"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+#using prcomp to calculate pve and cumulative pve
+leukemia_pca <- prcomp(leukemia_data[, -c(1)], scale = TRUE, center = TRUE)
+sdev <- leukemia_pca$sdev
+pve <- sdev^2/sum(sdev^2)
+cumulative_pve <- cumsum(pve)
+
+## This will put the next two plots side by side 
+par(mfrow=c(1, 2))
+
+## Plot proportion of variance explained \
+plot(pve, type="l", lwd=3) 
+plot(cumulative_pve, type="l", lwd=3)
+
+```
+
+c. "PROBLEM NUMBER FOUR, PART C"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+#load colors
+require(graphics)
+rainbow_colors <- rainbow(7)
+plot_colors <- rainbow_colors[leukemia_data$Type]
+
+new_coords <- leukemia_pca$x[,1:2]
+plot(new_coords, cex = 0.5)
+#from piazza do not need -new_coords
+text(new_coords, labels=leukemia_data$Type, col = plot_colors, cex = 0.6)
+
+sorted_PC1 <- sort(abs(leukemia_pca$x[,1]), decreasing = TRUE)
+head(sorted_PC1, n = 6)
+```
+Along the PC1 axis, the group that appears to be the most seperated from the others is the T-All gene. The six genes from PC1 that have the largest weighted have weights of 52.06836, 51.75384, 49.06527, 48.16035, 48.09339, 47.96769.
+
+f. "PROBLEM NUMBER FOUR, PART F"
+```{r tidy = TRUE, message = FALSE, warning = FALSE, error = FALSE}
+library(dendextend)
+
+#subset data to these 3 leukemia subtypes
+leukemia_subset = filter(leukemia_data, Type == "T-ALL" | Type == "TEL-AML1" | Type == "Hyperdip50")
+
+#eucledian distance with compltete linkage
+dis = dist(leukemia_subset, method="euclidean")
+set.seed(213)
+leukemia.hc = hclust(dis, method="complete")
+
+## dendrogram: branches colored by 3 groups 
+dend1 = as.dendrogram(leukemia.hc)
+# color branches and labels by 3 clusters 
+dend1 = color_branches(dend1, k=3)
+dend1 = color_labels(dend1, k=3)
+# change label size
+dend1 = set(dend1, "labels_cex", 0.3)
+
+# add true labels to observations
+dend1 = set_labels(dend1, labels=leukemia_subset$Type[order.dendrogram(dend1)]) # plot the dendrogram
+plot(dend1, horiz=T, main = "Dendrogram colored by three clusters")
+
+## dendrogram: branches colored by 5 groups 
+dend2 = as.dendrogram(leukemia.hc)
+# color branches and labels by 5 clusters 
+dend2 = color_branches(dend2, k=5)
+dend2 = color_labels(dend2, k=5)
+# change label size
+dend2 = set(dend2, "labels_cex", 0.3)
+
+# add true labels to observations
+dend2 = set_labels(dend2, labels=leukemia_subset$Type[order.dendrogram(dend2)]) # plot the dendrogram
+plot(dend2, horiz=T, main = "Dendrogram colored by five clusters")
+```
